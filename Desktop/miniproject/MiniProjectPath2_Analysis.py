@@ -1,15 +1,3 @@
-"""
-Mini Project Path 2: NYC Bicycle Traffic Analysis
-==================================================
-This analysis follows the coding style established in the provided homework files:
-- hw10.py: sklearn classifiers, metrics, model evaluation patterns
-- hw4.py: higher-order functions and functional programming patterns  
-- kmeans.py/cluster.py: clustering and data grouping approaches
-- gmm.py: feature concatenation and model selection via metrics (BIC)
-
-The analysis answers three questions about NYC bicycle traffic across bridges.
-"""
-
 import pandas as pd
 import numpy as np
 from itertools import combinations
