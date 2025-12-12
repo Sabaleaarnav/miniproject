@@ -2,15 +2,14 @@ import pandas as pd
 import numpy as np
 from itertools import combinations
 
-from sklearn.linear_model import LinearRegression, Ridge
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.neural_network import MLPClassifier
+from sklearn.linear_model import LinearRegression
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split
 from sklearn import metrics
 
-import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -71,11 +70,31 @@ def analyze_bridge_correlations(data):
     return data[bridges].corr()
 
 def question1_analysis(data):
+    print("=" * 60)
+    print("QUESTION 1: BRIDGE SENSOR SELECTION")
+    print("=" * 60)
+    
     corr_matrix = analyze_bridge_correlations(data)
+    print("\nCorrelation with Total Traffic:")
+    for bridge in ['Brooklyn Bridge', 'Manhattan Bridge', 'Williamsburg Bridge', 'Queensboro Bridge']:
+        print(f"  {bridge}: {corr_matrix.loc[bridge, 'Total']:.4f}")
+    
     best_combo, best_r2, best_rmse, best_coef, all_results = find_best_bridge_combination(data, 3)
+    
+    sorted_results = sorted(all_results, key=lambda x: x['r2_score'], reverse=True)
+    
+    print("\nAll 3-bridge combinations ranked by R² score:")
+    for i, result in enumerate(sorted_results, 1):
+        bridges_str = ', '.join([b.replace(' Bridge', '') for b in result['bridges']])
+        print(f"  {i}. [{bridges_str}]: R²={result['r2_score']:.6f}, RMSE={result['rmse']:.2f}")
     
     all_bridges = {'Brooklyn Bridge', 'Manhattan Bridge', 'Williamsburg Bridge', 'Queensboro Bridge'}
     excluded_bridge = (all_bridges - set(best_combo)).pop()
+    
+    print(f"\nBest combination: {', '.join([b.replace(' Bridge', '') for b in best_combo])}")
+    print(f"Bridge to EXCLUDE: {excluded_bridge}")
+    print(f"R² Score: {best_r2:.6f}")
+    print(f"RMSE: {best_rmse:.2f} bicyclists")
     
     return best_combo, excluded_bridge, best_r2, corr_matrix
 
@@ -88,15 +107,10 @@ def get_weather_model(name, params):
     model = None
     if name == "Linear":
         model = LinearRegression()
-    elif name == "Ridge":
-        alpha = params
-        model = Ridge(alpha=alpha)
     elif name == "KNN_Reg":
-        from sklearn.neighbors import KNeighborsRegressor
         k = params
         model = KNeighborsRegressor(n_neighbors=k)
     elif name == "MLP_Reg":
-        from sklearn.neural_network import MLPRegressor
         hl_sizes, rand_state, act_func = params
         model = MLPRegressor(hidden_layer_sizes=hl_sizes, random_state=rand_state, 
                             activation=act_func, max_iter=1000)
@@ -118,7 +132,16 @@ def analyze_weather_correlations(data):
     return data[weather_vars].corr()
 
 def question2_analysis(data):
+    print("\n" + "=" * 60)
+    print("QUESTION 2: WEATHER-BASED TRAFFIC PREDICTION")
+    print("=" * 60)
+    
     weather_corr = analyze_weather_correlations(data)
+    print("\nCorrelation with Total Traffic:")
+    print(f"  High Temp: {weather_corr.loc['High Temp', 'Total']:.4f}")
+    print(f"  Low Temp: {weather_corr.loc['Low Temp', 'Total']:.4f}")
+    print(f"  Precipitation: {weather_corr.loc['Precipitation', 'Total']:.4f}")
+    
     X, y = prepare_weather_features(data)
     
     scaler = StandardScaler()
@@ -130,12 +153,12 @@ def question2_analysis(data):
     
     models_to_test = [
         ("Linear", None),
-        ("Ridge", 1.0),
         ("KNN_Reg", 5),
         ("KNN_Reg", 10),
         ("MLP_Reg", [(50, 25), 42, "relu"]),
     ]
     
+    print("\nModel Performance (80-20 train-test split):")
     results = []
     for model_name, params in models_to_test:
         r2, rmse, mae, y_pred, model = evaluate_weather_model(
@@ -146,10 +169,21 @@ def question2_analysis(data):
             'params': params,
             'r2': r2,
             'rmse': rmse,
-            'mae': mae,
-            'predictions': y_pred,
-            'model_obj': model
+            'mae': mae
         })
+        
+        param_str = str(params) if params else "default"
+        print(f"\n  {model_name} (params={param_str}):")
+        print(f"    R² Score: {r2:.4f}")
+        print(f"    RMSE: {rmse:.2f}")
+        print(f"    MAE: {mae:.2f}")
+    
+    best_result = max(results, key=lambda x: x['r2'])
+    avg_traffic = data['Total'].mean()
+    
+    print(f"\nBest Model: {best_result['model']} with R² = {best_result['r2']:.4f}")
+    print(f"Average daily traffic: {avg_traffic:.0f}")
+    print(f"Best MAE as % of average: {(best_result['mae']/avg_traffic)*100:.1f}%")
     
     return results, weather_corr
 
@@ -172,9 +206,9 @@ def get_day_classifier(name, params):
     if name == "KNN":
         k = params
         model = KNeighborsClassifier(n_neighbors=k)
-    elif name == "RandomForest":
-        n_est, rand_state = params
-        model = RandomForestClassifier(n_estimators=n_est, random_state=rand_state)
+    elif name == "SVM":
+        rand_state, prob = params
+        model = SVC(random_state=rand_state, probability=prob)
     elif name == "MLP":
         hl_sizes, rand_state, act_func = params
         model = MLPClassifier(hidden_layer_sizes=hl_sizes, random_state=rand_state, 
@@ -200,7 +234,25 @@ def evaluate_day_classifier(model_name, params, X_train, y_train, X_test, y_test
     return acc, conf_mat, prediction_testdb, model
 
 def question3_analysis(data):
+    print("\n" + "=" * 60)
+    print("QUESTION 3: DAY-OF-WEEK PATTERNS AND PREDICTION")
+    print("=" * 60)
+    
     day_stats = analyze_weekly_patterns(data)
+    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    
+    print("\nAverage Total Traffic by Day:")
+    for day in day_order:
+        mean_val = day_stats.loc[day, ('Total', 'mean')]
+        std_val = day_stats.loc[day, ('Total', 'std')]
+        print(f"  {day:10s}: {mean_val:,.0f} (+/- {std_val:,.0f})")
+    
+    weekday_avg = data[data['Day'].isin(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'])]['Total'].mean()
+    weekend_avg = data[data['Day'].isin(['Saturday', 'Sunday'])]['Total'].mean()
+    
+    print(f"\nWeekday average: {weekday_avg:,.0f}")
+    print(f"Weekend average: {weekend_avg:,.0f}")
+    print(f"Weekday has {((weekday_avg/weekend_avg)-1)*100:.1f}% more traffic than weekend")
     
     X, y, label_encoder = prepare_day_classification_data(data)
     
@@ -216,10 +268,11 @@ def question3_analysis(data):
     classifiers = [
         ("KNN", 3),
         ("KNN", 5),
-        ("RandomForest", [100, 42]),
+        ("SVM", [42, True]),
         ("MLP", [(64, 32), 42, "relu"]),
     ]
     
+    print("\nDay-of-Week Classification Results:")
     results = []
     for clf_name, params in classifiers:
         acc, conf_mat, y_pred, model = evaluate_day_classifier(
@@ -229,81 +282,42 @@ def question3_analysis(data):
             'classifier': clf_name,
             'params': params,
             'accuracy': acc,
-            'confusion_matrix': conf_mat,
-            'model': model
+            'confusion_matrix': conf_mat
         })
+        
+        print(f"\n  {clf_name} (params={params}):")
+        print(f"    Accuracy: {acc:.4f} ({acc*100:.1f}%)")
+    
+    best_result = max(results, key=lambda x: x['accuracy'])
+    random_baseline = 1.0 / 7
+    
+    print(f"\nBest Classifier: {best_result['classifier']}")
+    print(f"Best Accuracy: {best_result['accuracy']:.4f} ({best_result['accuracy']*100:.1f}%)")
+    print(f"Random baseline: {random_baseline:.4f} ({random_baseline*100:.1f}%)")
+    print(f"Improvement over random: {best_result['accuracy']/random_baseline:.2f}x")
     
     return day_stats, results, label_encoder
 
-def create_visualizations(data, q1_results, q2_results, q3_results):
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-    
-    ax1 = axes[0, 0]
-    bridges = ['Brooklyn Bridge', 'Manhattan Bridge', 'Williamsburg Bridge', 'Queensboro Bridge']
-    bridge_short = ['Brooklyn', 'Manhattan', 'Williamsburg', 'Queensboro']
-    corr_data = data[bridges].corr()
-    im1 = ax1.imshow(corr_data, cmap='YlOrRd', aspect='auto', vmin=0.7, vmax=1)
-    ax1.set_xticks(range(len(bridge_short)))
-    ax1.set_yticks(range(len(bridge_short)))
-    ax1.set_xticklabels(bridge_short, rotation=45, ha='right')
-    ax1.set_yticklabels(bridge_short)
-    ax1.set_title('Q1: Bridge Traffic Correlations')
-    plt.colorbar(im1, ax=ax1, shrink=0.8)
-    
-    for i in range(len(bridges)):
-        for j in range(len(bridges)):
-            ax1.text(j, i, f'{corr_data.iloc[i, j]:.2f}', 
-                    ha='center', va='center', fontsize=9)
-    
-    ax2 = axes[0, 1]
-    scatter = ax2.scatter(data['High Temp'], data['Total'], 
-                         c=data['Precipitation'], cmap='Blues', 
-                         alpha=0.6, edgecolors='gray', linewidth=0.5)
-    ax2.set_xlabel('High Temperature (°F)')
-    ax2.set_ylabel('Total Bicyclists')
-    ax2.set_title('Q2: Temperature vs Traffic\n(color = precipitation)')
-    plt.colorbar(scatter, ax=ax2, label='Precipitation (in)', shrink=0.8)
-    
-    ax3 = axes[1, 0]
-    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    day_means = [data[data['Day'] == day]['Total'].mean() for day in day_order]
-    day_stds = [data[data['Day'] == day]['Total'].std() for day in day_order]
-    
-    colors = ['#2ecc71' if day not in ['Saturday', 'Sunday'] else '#e74c3c' for day in day_order]
-    bars = ax3.bar(range(7), day_means, yerr=day_stds, capsize=5, color=colors, alpha=0.7)
-    ax3.set_xticks(range(7))
-    ax3.set_xticklabels(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
-    ax3.set_ylabel('Average Total Bicyclists')
-    ax3.set_title('Q3: Weekly Traffic Pattern\n(Green=Weekday, Red=Weekend)')
-    ax3.axhline(y=np.mean(day_means), color='black', linestyle='--', alpha=0.5, label='Overall Mean')
-    ax3.legend()
-    
-    ax4 = axes[1, 1]
-    bridges_short = ['Brooklyn', 'Manhattan', 'Williamsburg', 'Queensboro']
-    day_bridge_means = np.zeros((7, 4))
-    for i, day in enumerate(day_order):
-        for j, bridge in enumerate(bridges):
-            day_bridge_means[i, j] = data[data['Day'] == day][bridge].mean()
-    
-    day_bridge_norm = day_bridge_means / day_bridge_means.max(axis=0)
-    
-    im4 = ax4.imshow(day_bridge_norm, cmap='YlGn', aspect='auto')
-    ax4.set_xticks(range(4))
-    ax4.set_yticks(range(7))
-    ax4.set_xticklabels(bridges_short, rotation=45, ha='right')
-    ax4.set_yticklabels(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
-    ax4.set_title('Q3: Normalized Bridge Usage by Day')
-    plt.colorbar(im4, ax=ax4, shrink=0.8, label='Relative Usage')
-    
-    plt.tight_layout()
-    plt.savefig('bicycle_analysis_figures.png', dpi=150, bbox_inches='tight')
-    plt.close()
-
 if __name__ == "__main__":
     data = load_data()
+    print(f"Dataset loaded: {len(data)} records")
+    print(f"Date range: {data['Date'].iloc[0]} to {data['Date'].iloc[-1]}")
     
     q1_results = question1_analysis(data)
     q2_results = question2_analysis(data)
     q3_results = question3_analysis(data)
     
-    create_visualizations(data, q1_results, q2_results, q3_results)
+    print("\n" + "=" * 60)
+    print("SUMMARY")
+    print("=" * 60)
+    best_combo, excluded, r2, _ = q1_results
+    print(f"\nQ1: Install sensors on {', '.join([b.replace(' Bridge', '') for b in best_combo])}")
+    print(f"    Exclude: {excluded} (R² = {r2:.4f})")
+    
+    weather_results, _ = q2_results
+    best_weather = max(weather_results, key=lambda x: x['r2'])
+    print(f"\nQ2: Best weather model: {best_weather['model']} (R² = {best_weather['r2']:.4f})")
+    
+    _, day_results, _ = q3_results
+    best_day = max(day_results, key=lambda x: x['accuracy'])
+    print(f"\nQ3: Best day classifier: {best_day['classifier']} (Accuracy = {best_day['accuracy']:.4f})")
