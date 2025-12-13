@@ -3,10 +3,10 @@ import numpy as np
 from itertools import combinations
 
 from sklearn.linear_model import LinearRegression
-from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
-from sklearn.neural_network import MLPClassifier, MLPRegressor
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn import metrics
 
@@ -22,13 +22,14 @@ def load_data():
     dataset['Total'] = pd.to_numeric(dataset['Total'].replace(',', '', regex=True))
     return dataset
 
-def get_bridge_combinations(bridges, num_select):
+def get_bridge_combinations(bridges, n):
     #We are building every group of num)sekect from the list we had
-    return list(combinations(bridges, num_select))
+    return list(combinations(bridges, n))
 
-def evaluate_bridge_combination(data, bridge_combo):
+def evaluate_bridge_combination(data, combo):
+    
     #This is for the selected bridges as input for total traffic
-    X = data[list(bridge_combo)].values
+    X = data[list(combo)].values
     y = data['Total'].values
     
     #this is for our linear regression model
@@ -143,40 +144,6 @@ def prepare_weather_features(data):
     return X, y
 
 
-def get_weather_model(name, params):
-
-    model = None
-
-    if name == "Linear":
-        model = LinearRegression()
-
-    elif name == "KNN_Reg":
-        k = params
-        model = KNeighborsRegressor(n_neighbors=k)
-
-    elif name == "MLP_Reg":
-        hl_sizes, rand_state, act_func = params
-        model = MLPRegressor(hidden_layer_sizes=hl_sizes, random_state=rand_state, 
-                            activation=act_func, max_iter=1000)
-        
-    return model
-
-
-def evaluate_weather_model(model_name, params, X_train, y_train, X_test, y_test):
-
-    model= get_weather_model(model_name, params)
-
-    model.fit(X_train, y_train)
-
-    y_pred = model.predict(X_test)
-    
-    r2= metrics.r2_score(y_test, y_pred)
-    rmse= np.sqrt(metrics.mean_squared_error(y_test, y_pred))
-    mae = metrics.mean_absolute_error(y_test, y_pred)
-    
-    return r2, rmse, mae, y_pred, model
-
-
 def analyze_weather_correlations(data):
 
     weather_vars = ['High Temp', 
@@ -201,52 +168,35 @@ def question2_analysis(data):
     
     X, y = prepare_weather_features(data)
     
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    
     X_train, X_test, y_train, y_test = train_test_split(
-        X_scaled, y, test_size=0.2, random_state=42
+        X, y, test_size=0.2, random_state=42
     )
     
-    models_to_test = [
-
-        ("Linear", None),
-        ("KNN_Reg", 5),
-        ("KNN_Reg", 10),
-        ("MLP_Reg", [(50, 25), 42, "relu"]),
-    ]
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
     
-    print("\nModel Performance (80-20 train-test split):")
-    results = []
-
-    for model_name, params in models_to_test:
-        r2, rmse, mae, y_pred, model = evaluate_weather_model(
-            model_name, params, X_train, y_train, X_test, y_test
-        )
-
-        results.append({
-            'model': model_name,
-            'params': params,
-            'r2': r2,
-            'rmse': rmse,
-            'mae': mae
-        })
-        
-        param_str = str(params) if params else "default"
-
-        print(f"\n  {model_name} (params={param_str}):")
-        print(f"    R² Score: {r2:.4f}")
-        print(f"    RMSE: {rmse:.2f}")
-        print(f"    MAE: {mae:.2f}")
+    r2 = metrics.r2_score(y_test, y_pred)
+    rmse = np.sqrt(metrics.mean_squared_error(y_test, y_pred))
+    mae = metrics.mean_absolute_error(y_test, y_pred)
     
-    best_result= max(results, key=lambda x: x['r2'])
+    print("\nLinear Regression Results (80-20 train-test split):")
+    print(f"  R² Score: {r2:.4f}")
+    print(f"  RMSE: {rmse:.2f}")
+    print(f"  MAE: {mae:.2f}")
+    
+    print(f"\nCoefficients:")
+    print(f"  High Temp: {model.coef_[0]:.2f}")
+    print(f"  Low Temp: {model.coef_[1]:.2f}")
+    print(f"  Precipitation: {model.coef_[2]:.2f}")
+    print(f"  Intercept: {model.intercept_:.2f}")
+    
     avg_traffic = data['Total'].mean()
     
-    print(f"\nBest Model: {best_result['model']} with R² = {best_result['r2']:.4f}")
-    print(f"Average daily traffic: {avg_traffic:.0f}")
-    print(f"Best MAE as % of average: {(best_result['mae']/avg_traffic)*100:.1f}%")
+    print(f"\nAverage daily traffic: {avg_traffic:.0f}")
+    print(f"MAE as % of average: {(mae/avg_traffic)*100:.1f}%")
     
-    return results, weather_corr
+    return r2, rmse, mae, weather_corr
 
 def analyze_weekly_patterns(data):
     #finding the mean and std dev for everyday
@@ -339,11 +289,8 @@ def question3_analysis(data):
     
     X, y, label_encoder = prepare_day_classification_data(data)
     
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    
     X_train, X_test, y_train, y_test = train_test_split(
-        X_scaled, y, test_size=0.2, random_state=42
+        X, y, test_size=0.2, random_state=42
     )
     
     num_class = 7
@@ -398,9 +345,8 @@ if __name__ == "__main__":
     print(f"\nQ1: Install sensors on {', '.join([b.replace(' Bridge', '') for b in best_combo])}")
     print(f"    Exclude: {excluded} (R² = {r2:.4f})")
     
-    weather_results, _ = q2_results
-    best_weather = max(weather_results, key=lambda x: x['r2'])
-    print(f"\nQ2: Best weather model: {best_weather['model']} (R² = {best_weather['r2']:.4f})")
+    r2_weather, _, _, _ = q2_results
+    print(f"\nQ2: Linear Regression R² = {r2_weather:.4f}")
     
     _, day_results, _ = q3_results
     best_day = max(day_results, key=lambda x: x['accuracy'])
